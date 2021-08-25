@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 '''
-Runs rtlamr to watch for IDM broadcasts from power meter. If meter id
-is in the list, usage is sent to 'readings/{meter id}/meter_reading'
+Runs rtlamr to watch for IDM/SCM/SCM+ broadcasts from power meter. If meter id
+is in the list, usage is sent to 'amr/reading/SCM/{meter id}/message'
 topic on the MQTT broker specified in settings.
 
 WATCHED_METERS = A Python list indicating those meter IDs to record and post.
@@ -16,9 +16,11 @@ import sys
 import time
 import paho.mqtt.publish as publish
 import settings
+import json
 
 # uses signal to shutdown and hard kill opened processes and self
 def shutdown(signum, frame):
+    send_mqtt('amr/availability', 'offline')
     rtltcp.send_signal(15)
     rtlamr.send_signal(15)
     time.sleep(1)
@@ -52,7 +54,7 @@ def set_last_interval(meter_id, interval_ID):
 # send data to MQTT broker defined in settings
 def send_mqtt(topic, payload,):
     try:
-        publish.single(topic, payload=payload, qos=1, hostname=settings.MQTT_HOST, port=settings.MQTT_PORT, auth=auth)
+        publish.single(topic, payload=payload, qos=1, hostname=settings.MQTT_HOST, port=settings.MQTT_PORT, auth=auth, retain=True)
     except Exception as ex:
         print("MQTT Publish Failed: " + str(ex))
 
@@ -60,53 +62,51 @@ def send_mqtt(topic, payload,):
 rtltcp = subprocess.Popen([settings.RTL_TCP + " > /dev/null 2>&1 &"], shell=True,
     stdin=None, stdout=None, stderr=None, close_fds=True)
 time.sleep(5)
+debug_print('started rtl_tcp')
 
 # start the rtlamr program.
-rtlamr_cmd = [settings.RTLAMR, '-msgtype=idm', '-format=csv']
+rtlamr_cmd = [settings.RTLAMR, '-msgtype=all', '-format=json']
 rtlamr = subprocess.Popen(rtlamr_cmd, stdout=subprocess.PIPE, universal_newlines=True)
+debug_print('started rtlamr')
+
+# Let listeners know we are available
+send_mqtt('amr/status/availability', 'online')
+
+# Hack to enable Home Assistant last_reset_topic
+# See https://github.com/home-assistant/core/issues/53988
+send_mqtt('amr/status/last_reset', '1970-01-01T00:00:00+00:00')
 
 while True:
     try:
         amrline = rtlamr.stdout.readline().strip()
-        flds = amrline.split(',')
+        flds = json.loads(amrline)
 
-        if len(flds) != 66:
-            # proper IDM results have 66 fields
-            continue
+        # There is a message type called SCM+ which needs to be renamed SCMplus
+        msgType = flds['Type'].replace('+','plus')
+        msgBody = flds['Message']
+
+        meter_id = 'unknown'
+        meter_type = 0
+
+        if msgType == 'SCM':
+            meter_id = msgBody['ID']
+            meter_type = msgBody['Type']
+        elif msgType == 'SCMplus':
+            meter_id = msgBody['EndpointID']
+            meter_type = msgBody['EndpointType']
+        elif msgType == 'IDM':
+            meter_id = msgBody['ERTSerialNumber']
+            meter_type = msgBody['ERTType']
+        else:
+            meter_id = flds['Time']
+            debug_print('Unhandled msgType {}'.format(msgType))
 
         # make sure the meter id is one we want
-        meter_id = int(flds[9])
         if settings.WATCHED_METERS and meter_id not in settings.WATCHED_METERS:
             continue
 
-        # get some required info: current meter reading, current interval id, most recent interval usage
-        read_cur = int(flds[15])
-        interval_cur = int(flds[10])
-        idm_read_cur = int(flds[16])
-
-        # retreive the interval id of the last time we sent to MQTT
-        interval_last = get_last_interval(meter_id)
-
-        if interval_cur != interval_last:
-
-            # as observed on on my meter...
-            # using values set in settings...
-            # each idm interval is 5 minutes (12x per hour),
-            # measured in hundredths of a kilowatt hour
-            # take the last interval usage times 10 to get watt-hours,
-            # then times 12 to get average usage in watts
-            rate = idm_read_cur * settings.WH_MULTIPLIER * settings.READINGS_PER_HOUR
-
-            current_reading_in_kwh = (read_cur * settings.WH_MULTIPLIER) / 1000
-
-            debug_print('Sending meter {} reading: {}'.format(meter_id, current_reading_in_kwh))
-            send_mqtt('readings/{}/meter_reading'.format(meter_id), str(current_reading_in_kwh))
-
-            debug_print('Sending meter {} rate: {}'.format(meter_id, rate))
-            send_mqtt('readings/{}/meter_rate'.format(meter_id), str(rate))
-
-            # store interval ID to avoid duplicating data
-            set_last_interval(meter_id, interval_cur)
+        # Send the whole message to a dynamically configured topic
+        send_mqtt('amr/reading/{}/{}/{}/message'.format(msgType, meter_type, meter_id), amrline)
 
     except Exception as e:
         debug_print('Exception squashed! {}: {}', e.__class__.__name__, e)

@@ -89,6 +89,10 @@ Edit file and replace with appropriate values for your configuration
 
 `sudo nano /opt/amridm2mqtt/settings.py`
 
+### TODO
+
+TLS setup is not performed, so you can only use the non-secure TCP port which is 1883 by default.
+
 ### Install Service and Start
 
 Copy armidm2mqtt service configuration into systemd config
@@ -110,25 +114,40 @@ Set amridm2mqtt to run on startup
 ### Configure Home Assistant
 
 To use these values in Home Assistant,
-```
+
+```yaml
 sensor:
   - platform: mqtt
-    state_topic: "readings/12345678/meter_reading"
-    name: "Power Meter"
+    state_topic: "amr/reading/SCM/4/12345678/message"
+    name: "Electric Meter"
+    unique_id: electric_meter_01
     unit_of_measurement: kWh
+    device_class: energy
+    state_class: measurement
+    availability_topic: amr/status/availability
+    last_reset_topic: amr/status/last_reset
+    value_template: "{{ value_json.Message.Consumption }}"
+    json_attributes_template: "{{ value_json.Message | tojson }}"
+    json_attributes_topic: "amr/reading/SCM/4/12345678/message"
+```
 
-  - platform: mqtt
-    state_topic: "readings/12345678/meter_rate"
-    name: "Power Meter Avg Usage 5 mins"
-    unit_of_measurement: W
-  ```
+Note that we are publishing status information to the amr/status topic:
+
+**amr/status/availability**: `online`|`offline` when the service starts or stops, respectively.\
+**amr/status/last_reset**: `1970-01-01T00:00:00+00:00` see [last_reset_topic](https://www.home-assistant.io/integrations/sensor.mqtt/#last_reset_topic) for more information.
 
 ## Testing
 
-Assuming you're using mosquitto as the server, and your meter's id is 12345678, you can watch for events using the command:
+Assuming you're using mosquitto as the server, and your meter's sends SCM messages with id 12345678, you can watch for events using the command:
 
-`mosquitto_sub -t "readings/12345678/meter_reading"`
+`mosquitto_sub -t "amr/reading/SCM/4/12345678/message"`
 
 Or if you've password protected mosquitto
 
-`mosquitto_sub -t "readings/12345678/meter_reading" -u <user_name> -P <password>`
+`mosquitto_sub -t "amr/reading/SCM/4/12345678/message" -u <user_name> -P <password>`
+
+If all else fails, you can listen to the base topic to see what's actually getting posted
+
+`mosquitto_sub -t "amr/#" -u <user_name> -P <password>`
+
+Most electric meters are going to be type 4 or 7. For a list of meter types and ERT types, see: https://github.com/bemasher/rtlamr/blob/master/meters.csv
