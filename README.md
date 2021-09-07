@@ -8,7 +8,12 @@ TODO: Video for Home Assistant
 
 ## Changes from Original Project
 
-This repository fork has been altered to send the full JSON payload for both SCM and IDM messages via MQTT instead of sending an array of values.
+This repository fork has been altered to send the full JSON payload for both SCM and IDM messages via MQTT instead of sending an array of values. See below for a sample setup for Home Assistant.
+
+- Messages are posted with ‘retain’ flag enabled so that the meter information is immediately available to HASS on restart
+- Messages are published to topics in more unique namespaces for easier filtering
+- Messages are published to an availability topic so that HASS can update accordingly when the service is up or down
+- A last_reset hack value is posted to workaround the issues with MQTT sensor and last_reset, this hack is only needed for Home Assistant 2021.8, but it is retained for backwards compatibility.
 
 Example Topic:
 `amr/reading/SCM/2/32109876/message`
@@ -150,7 +155,7 @@ sensor:
     state_class: measurement
     availability_topic: amr/status/availability
     last_reset_topic: amr/status/last_reset
-    value_template: "{{ value_json.Message.Consumption }}"
+    value_template: "{{ value_json.Message.Consumption | float }}"
     json_attributes_template: "{{ value_json.Message | tojson }}"
     json_attributes_topic: "amr/reading/SCM/4/12345678/message"
 ```
