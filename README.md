@@ -6,6 +6,30 @@ Using an [inexpensive rtl-sdr dongle](https://www.amazon.com/s/ref=nb_sb_noss?fi
 
 TODO: Video for Home Assistant
 
+## Changes from Original Project
+
+This repository fork has been altered to send the full JSON payload for both SCM and IDM messages via MQTT instead of sending an array of values.
+
+Example Topic:
+`amr/reading/SCM/2/32109876/message`
+
+Example MQTT payload:
+```JSON
+{
+  "Time" : "2021-09-01T09:23:49.559057273-06:00",
+  "Offset" : 0,
+  "Length" : 0,
+  "Type" : "SCM",
+  "Message" : {
+    "ID" : 32109876,
+    "Type" : 2,
+    "TamperPhy" : 1,
+    "TamperEnc" : 0,
+    "Consumption" : 322827,
+    "ChecksumVal" : 23210
+  }
+}
+```
 
 ## Docker
 
