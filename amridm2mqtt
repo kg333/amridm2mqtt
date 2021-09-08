@@ -65,7 +65,7 @@ time.sleep(5)
 debug_print('started rtl_tcp')
 
 # start the rtlamr program.
-rtlamr_cmd = [settings.RTLAMR, '-msgtype=all', '-format=json']
+rtlamr_cmd = [settings.RTLAMR, '--msgtype=' + settings.RTLAMR_MSGTYPE, '--format=json']
 rtlamr = subprocess.Popen(rtlamr_cmd, stdout=subprocess.PIPE, universal_newlines=True)
 debug_print('started rtlamr')
 

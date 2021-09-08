@@ -38,5 +38,11 @@ MQTT_PASSWORD = ''
 # path to rtlamr
 RTLAMR = '/usr/local/bin/rtlamr'
 
+# The message types to retrieve, 'all' or a comma separated list
+# of one or more of: scm,scm+,idm,r900 Note that 'all' and 'r900'
+# are slow and will bog down raspberry pi class hardware
+RTLAMR_MSGTYPE = 'scm,scm+,idm'
+
 # path to rtl_tcp
 RTL_TCP = '/usr/bin/rtl_tcp'
+
