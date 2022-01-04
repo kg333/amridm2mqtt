@@ -54,7 +54,7 @@ time.sleep(10)
 debug_print('started rtl_tcp')
 
 # start the rtlamr program.
-filter_ids = ','.join(map(str, settings.WATCHED_METERS)) #join([str(elem) for elem in settings.WATCHED_METERS])
+filter_ids = ','.join(map(str, settings.WATCHED_METERS))
 rtlamr_cmd = [settings.RTLAMR, '-msgtype=scm', '-format=csv', '-filterid=' + filter_ids, '-symbollength=' + str(settings.SYMBOL_LENGTH)]
 rtlamr = subprocess.Popen(rtlamr_cmd, stdout=subprocess.PIPE, universal_newlines=True)
 debug_print('started rtlamr')
