@@ -8,37 +8,12 @@ TODO: Video for Home Assistant
 
 ## Changes from Original Project
 
-This repository fork has been altered to send the full JSON payload for both SCM and IDM messages via MQTT instead of sending an array of values. See below for a sample setup for Home Assistant.
+This fork is specifically for tuned for reading SCM messages.
 
-- Messages are posted with ‘retain’ flag enabled so that the meter information is immediately available to HASS on restart
-- Messages are published to topics in more unique namespaces for easier filtering
-- Messages are published to an availability topic so that HASS can update accordingly when the service is up or down
-- A last_reset hack value is posted to workaround the issues with MQTT sensor and last_reset, this hack is only needed for Home Assistant 2021.8, but it is retained for backwards compatibility.
+- symbol lengths are tuned (and can be adjusted) to reduce CPU consumption
 
 Example Topic:
-`amr/reading/SCM/2/32109876/message`
-
-Example MQTT payload:
-```JSON
-{
-  "Time" : "2021-09-01T09:23:49.559057273-06:00",
-  "Offset" : 0,
-  "Length" : 0,
-  "Type" : "SCM",
-  "Message" : {
-    "ID" : 32109876,
-    "Type" : 2,
-    "TamperPhy" : 1,
-    "TamperEnc" : 0,
-    "Consumption" : 322827,
-    "ChecksumVal" : 23210
-  }
-}
-```
-
-## Docker
-
-If you use Docker and would rather launch this under a container see <README.Docker.md>.
+`meters/32109876/reading`
 
 ## Requirements
 
@@ -104,19 +79,19 @@ Clone repo into opt
 
 `cd /opt`
 
-`sudo git clone https://github.com/ragingcomputer/amridm2mqtt.git`
+`sudo git clone https://github.com/jherby2k/amridm2mqtt.git amrscm2mqtt`
 
 ### Configure
 
 Copy template to settings.py
 
-`cd /opt/amridm2mqtt`
+`cd /opt/amrscm2mqtt`
 
 `sudo cp settings_template.py settings.py`
 
 Edit file and replace with appropriate values for your configuration
 
-`sudo nano /opt/amridm2mqtt/settings.py`
+`sudo nano /opt/amrscm2mqtt/settings.py`
 
 ### TODO
 
@@ -124,9 +99,9 @@ TLS setup is not performed, so you can only use the non-secure TCP port which is
 
 ### Install Service and Start
 
-Copy armidm2mqtt service configuration into systemd config
+Copy amrscm2mqtt service configuration into systemd config
 
-`sudo cp /opt/amridm2mqtt/amridm2mqtt.systemd.service /etc/systemd/system/amridm2mqtt.service`
+`sudo cp /opt/amrscm2mqtt/amrscm2mqtt.systemd.service /etc/systemd/system/amrscm2mqtt.service`
 
 Refresh systemd configuration
 
@@ -134,11 +109,11 @@ Refresh systemd configuration
 
 Start amridm2mqtt service
 
-`sudo service amridm2mqtt start`
+`sudo service amrscm2mqtt start`
 
 Set amridm2mqtt to run on startup
 
-`sudo systemctl enable amridm2mqtt.service`
+`sudo systemctl enable amrscm2mqtt.service`
 
 ### Configure Home Assistant
 
@@ -147,36 +122,26 @@ To use these values in Home Assistant,
 ```yaml
 sensor:
   - platform: mqtt
-    state_topic: "amr/reading/SCM/4/12345678/message"
-    name: "Electric Meter"
-    unique_id: electric_meter_01
-    unit_of_measurement: kWh
-    device_class: energy
-    state_class: measurement
-    availability_topic: amr/status/availability
-    last_reset_topic: amr/status/last_reset
-    value_template: "{{ value_json.Message.Consumption | float }}"
-    json_attributes_template: "{{ value_json.Message | tojson }}"
-    json_attributes_topic: "amr/reading/SCM/4/12345678/message"
+    state_topic: "meters/12345678/reading"
+    name: "Gas Meter"
+    unit_of_measurement: m³
+    device_class: gas
+    state_class: total
+    availability_topic: "meters/availability"
+    value_template: '{{ (value | int(0) * 0.0283) | round(2) }}'  # converts cubic feet to m³
 ```
-
-Note that we are publishing status information to the amr/status topic:
-
-**amr/status/availability**: `online`|`offline` when the service starts or stops, respectively.\
-**amr/status/last_reset**: `1970-01-01T00:00:00+00:00` see [last_reset_topic](https://www.home-assistant.io/integrations/sensor.mqtt/#last_reset_topic) for more information.
 
 ## Testing
 
 Assuming you're using mosquitto as the server, and your meter's sends SCM messages with id 12345678, you can watch for events using the command:
 
-`mosquitto_sub -t "amr/reading/SCM/4/12345678/message"`
+`mosquitto_sub -t "meters/12345678/reading"`
 
 Or if you've password protected mosquitto
 
-`mosquitto_sub -t "amr/reading/SCM/4/12345678/message" -u <user_name> -P <password>`
+`mosquitto_sub -t "meters/12345678/reading" -u <user_name> -P <password>`
 
 If all else fails, you can listen to the base topic to see what's actually getting posted
 
-`mosquitto_sub -t "amr/#" -u <user_name> -P <password>`
+`mosquitto_sub -t "meters/#" -u <user_name> -P <password>`
 
-Most electric meters are going to be type 4 or 7. For a list of meter types and ERT types, see: https://github.com/bemasher/rtlamr/blob/master/meters.csv

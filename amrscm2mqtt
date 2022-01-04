@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 '''
-Runs rtlamr to watch for IDM/SCM/SCM+ broadcasts from power meter. If meter id
-is in the list, usage is sent to 'amr/reading/SCM/{meter id}/message'
+Runs rtlamr to watch for SDM broadcasts from power meter. If meter id
+is in the list, usage is sent to 'meters/{meter id}/reading'
 topic on the MQTT broker specified in settings.
 
 WATCHED_METERS = A Python list indicating those meter IDs to record and post.
@@ -16,11 +16,10 @@ import sys
 import time
 import paho.mqtt.publish as publish
 import settings
-import json
 
 # uses signal to shutdown and hard kill opened processes and self
 def shutdown(signum, frame):
-    send_mqtt('amr/status/availability', 'offline')
+    send_mqtt('meters/availability', 'offline')
     rtltcp.send_signal(15)
     rtlamr.send_signal(15)
     time.sleep(1)
@@ -31,11 +30,7 @@ def shutdown(signum, frame):
 signal.signal(signal.SIGTERM, shutdown)
 signal.signal(signal.SIGINT, shutdown)
 
-# stores last interval id to avoid duplication, includes getter and setter
-last_reading = {}
-
 auth = None
-
 if len(settings.MQTT_USER) and len(settings.MQTT_PASSWORD):
 	auth = {'username':settings.MQTT_USER, 'password':settings.MQTT_PASSWORD}
 
@@ -45,68 +40,45 @@ def debug_print(*args, **kwargs):
     if DEBUG:
         print(*args, **kwargs)
 
-def get_last_interval(meter_id):
-    return last_reading.get(meter_id, (None))
-
-def set_last_interval(meter_id, interval_ID):
-    last_reading[meter_id] = (interval_ID)
-
 # send data to MQTT broker defined in settings
-def send_mqtt(topic, payload,):
+def send_mqtt(topic, payload):
     try:
-        publish.single(topic, payload=payload, qos=1, hostname=settings.MQTT_HOST, port=settings.MQTT_PORT, auth=auth, retain=True)
+        publish.single(topic, payload=payload, qos=0, retain=True, hostname=settings.MQTT_HOST, port=settings.MQTT_PORT, auth=auth, client_id="rtlamr")
     except Exception as ex:
         print("MQTT Publish Failed: " + str(ex))
 
 # start the rtl_tcp program
 rtltcp = subprocess.Popen([settings.RTL_TCP + " > /dev/null 2>&1 &"], shell=True,
     stdin=None, stdout=None, stderr=None, close_fds=True)
-time.sleep(5)
+time.sleep(10)
 debug_print('started rtl_tcp')
 
 # start the rtlamr program.
-rtlamr_cmd = [settings.RTLAMR, '--msgtype=' + settings.RTLAMR_MSGTYPE, '--format=json']
+filter_ids = ','.join(map(str, settings.WATCHED_METERS)) #join([str(elem) for elem in settings.WATCHED_METERS])
+rtlamr_cmd = [settings.RTLAMR, '-msgtype=scm', '-format=csv', '-filterid=' + filter_ids, '-symbollength=' + str(settings.SYMBOL_LENGTH)]
 rtlamr = subprocess.Popen(rtlamr_cmd, stdout=subprocess.PIPE, universal_newlines=True)
 debug_print('started rtlamr')
 
 # Let listeners know we are available
-send_mqtt('amr/status/availability', 'online')
-
-# Hack to enable Home Assistant last_reset_topic
-# See https://github.com/home-assistant/core/issues/53988
-send_mqtt('amr/status/last_reset', '1970-01-01T00:00:00+00:00')
+send_mqtt('meters/availability', 'online')
 
 while True:
     try:
         amrline = rtlamr.stdout.readline().strip()
-        flds = json.loads(amrline)
+        flds = amrline.split(',')
 
-        # There is a message type called SCM+ which needs to be renamed SCMplus
-        msgType = flds['Type'].replace('+','plus')
-        msgBody = flds['Message']
-
-        meter_id = 'unknown'
-        meter_type = 0
-
-        if msgType == 'SCM':
-            meter_id = msgBody['ID']
-            meter_type = msgBody['Type']
-        elif msgType == 'SCMplus':
-            meter_id = msgBody['EndpointID']
-            meter_type = msgBody['EndpointType']
-        elif msgType == 'IDM':
-            meter_id = msgBody['ERTSerialNumber']
-            meter_type = msgBody['ERTType']
-        else:
-            meter_id = flds['Time']
-            debug_print('Unhandled msgType {}'.format(msgType))
-
-        # make sure the meter id is one we want
-        if settings.WATCHED_METERS and meter_id not in settings.WATCHED_METERS:
+        if len(flds) != 9:
+            # proper SCM results have 9 fields
             continue
 
-        # Send the whole message to a dynamically configured topic
-        send_mqtt('amr/reading/{}/{}/{}/message'.format(msgType, meter_type, meter_id), amrline)
+        # make sure the meter id is one we want
+        meter_id = int(flds[3])
+
+        # get some required info: current meter reading
+        reading = int(flds[7])
+
+        debug_print('Sending meter {} reading: {}'.format(meter_id, reading))
+        send_mqtt('meters/{}/reading'.format(meter_id), reading)
 
     except Exception as e:
         debug_print('Exception squashed! {}: {}', e.__class__.__name__, e)
