@@ -55,7 +55,7 @@ debug_print('started rtl_tcp')
 
 # start the rtlamr program.
 filter_ids = ','.join(map(str, settings.WATCHED_METERS))
-rtlamr_cmd = [settings.RTLAMR, '-msgtype=scm,scm+', '-format=csv', '-filterid=' + filter_ids, '-symbollength=' + str(settings.SYMBOL_LENGTH)]
+rtlamr_cmd = [settings.RTLAMR, '-msgtype=scm,scm+,r900', '-format=csv', '-filterid=' + filter_ids, '-symbollength=' + str(settings.SYMBOL_LENGTH)]
 rtlamr = subprocess.Popen(rtlamr_cmd, stdout=subprocess.PIPE, universal_newlines=True)
 debug_print('started rtlamr')
 
@@ -86,6 +86,16 @@ while True:
             reading = int(flds[7])
 
             debug_print('Sending SCM+ meter {} reading: {}'.format(meter_id, reading))
+            send_mqtt('meters/{}/reading'.format(meter_id), reading)
+        elif len(flds) == 11:
+            # proper SCM+ results have 10 fields
+            # make sure the meter id is one we want
+            meter_id = int(flds[3])
+
+            # get some required info: current meter reading
+            reading = int(flds[7])
+
+            debug_print('Sending R900 meter {} reading: {}'.format(meter_id, reading))
             send_mqtt('meters/{}/reading'.format(meter_id), reading)
 
     except Exception as e:
